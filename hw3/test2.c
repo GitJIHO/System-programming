@@ -3,8 +3,9 @@
 #include <stdio.h>
 #include <time.h>
 #include <curses.h>
+#include <signal.h>
 
-#define NUM_mines 10
+#define NUM_mines 3
 #define HEIGHT 10
 #define WIDTH 10
 
@@ -12,6 +13,9 @@ bool lose = false;
 bool win = false;
 int mines = NUM_mines;
 int Flag = NUM_mines;
+time_t starttime;
+int cursor_x, cursor_y;
+
 
 
 typedef struct Cell {
@@ -27,6 +31,7 @@ typedef struct Board {
     Cell **cells; /* pointer to the pointer */
 } Board;
 
+void sigint_handler(int signum);
 void make_board(Board *);          /* pointer to the board in order to create board */
 void print_board(Board *);         /* pointer to the board and printing board */
 void bombplacing_randomly(Board *, int);    /* pointer to the board and number of bombs  */
@@ -37,20 +42,25 @@ void check_for_win(Board *, int);   /* pointer to the board and number of mines 
 void play_game();                   /* function to play the game */
 
 int main() {
-    clock_t begin = clock(); /* getting time at the beginning */
+    starttime = time(NULL);
+    signal(SIGQUIT, sigint_handler);
 
     initscr();  // Initialize the screen
+    start_color();
+    init_pair(1, COLOR_GREEN, COLOR_BLACK);
     cbreak();   // Disable line buffering
 
     play_game();
 
-    endwin();   // End curses mode
-
-    clock_t end = clock();  /* getting time at the end */
-    double spend_time = (double)(end - begin) / CLOCKS_PER_SEC; /* time difference */
-
-    printf("You spent %.2f seconds playing the game\n", spend_time);
     return 0;
+}
+
+void sigint_handler(int signum) {
+    getyx(stdscr, cursor_y, cursor_x);
+    time_t elapsed = time(NULL) - starttime;
+    mvprintw(0,0,"Elapsed time: %ld", elapsed);
+    move(cursor_y, cursor_x);
+    refresh();
 }
 
 void make_board(Board *ptr) {
@@ -80,9 +90,10 @@ void make_board(Board *ptr) {
 void print_board(Board *ptr) {
     clear(); // Clear the screen
 
-    printw("a\na\na\n");
-    printw("FLAGS: %d\n", Flag);
-    printw("  ");
+
+    mvprintw(5, 0, "FLAGS: %d\n", Flag);
+    attron(COLOR_PAIR(1));
+    printw("+ ");
     int i, j;
     for (i = 0; i <= ptr->width-1; ++i) /* loop in order print each row */
         printw("%d ", i); // numbers which shows rows
@@ -94,16 +105,24 @@ void print_board(Board *ptr) {
                 printw("%d ", i);
             } 
             else{
+                attroff(COLOR_PAIR(1));
                 if(ptr->cells[i+1][j].ch == '0'){
                     printw("X ");
                 } else{
                     printw("%c ", ptr->cells[i+1][j].ch);
                 }
             }
-                 // printing cells in the board
+            attron(COLOR_PAIR(1));
         }
         printw("\n");
     }
+    attron(COLOR_PAIR(1));
+    mvprintw(16,0,"+ - - - - - - - - - - +");
+    mvprintw(6,22,"+");
+    for(int i=7; i<16; i++){
+        mvprintw(i,22,"|");
+    }
+    attroff(COLOR_PAIR(1));   
     refresh(); // Refresh the screen
     return;
 }
@@ -114,8 +133,7 @@ void bombplacing_randomly(Board *ptr, int mines) {
         random_row = rand() % ptr->height; // generating random number
         random_col = rand() % ptr->width;  // generating random number
 
-        // if (ptr->cells[random_row][random_col].bomb == false && (random_row != 0 && random_col != 0)) // checking for numbers which were generated before or not
-        if (ptr->cells[random_row][random_col].bomb == false)
+        if (ptr->cells[random_row][random_col].bomb == false && (random_row != 0 && random_col != 0))
         {
             ptr->cells[random_row][random_col].bomb = true; // if not, make a new bomb
             num_of_mine++;
@@ -197,21 +215,26 @@ void check_for_win(Board *ptr, int mines) {
     int i, j, counter = 0; /* number of cells without bombs. At first assigning to zero*/
 
     for (i = 1; i <= ptr->height; ++i)
-        for (j = 1; j <= ptr->width; ++j)
+        for (j = 1; j <= ptr->width; ++j){
             if (ptr->cells[i][j].bomb == false && ptr->cells[i][j].ch != ' ' && ptr->cells[i][j].ch != 'F') /*if no bomb. increment*/
                 counter++; /* incrementing cells */
+            if (ptr->cells[i][j].bomb == false && ptr->cells[i][j].ch == 'F'){
+                printw("you win");
+                refresh();
+            }
+        }
 
     /* if counter equal below equation, it means user found all the cells which does not contain mines*/
     if (counter == (ptr->height * ptr->width) - mines) {
         win = true;
-        for (i = 1; i <= ptr->height; ++i)
-            for (j = 1; j <= ptr->width; ++j)
-                if (ptr->cells[i][j].bomb == true) /* if there is a bomb */
-                    ptr->cells[i][j].ch = '*'; // show all the bombs
-                else
-                    ptr->cells[i][j].ch = ptr->cells[i][j].number_of_mines + '0'; // showing numbers in the cells
+        // for (i = 1; i <= ptr->height; ++i)
+        //     for (j = 1; j <= ptr->width; ++j)
+        //         if (ptr->cells[i][j].bomb == true) /* if there is a bomb */
+        //             ptr->cells[i][j].ch = '*'; // show all the bombs
+        //         else
+        //             ptr->cells[i][j].ch = ptr->cells[i][j].number_of_mines + '0'; // showing numbers in the cells
 
-        print_board(ptr);
+        // print_board(ptr);
         printw("\nYou Won, Congratulations!!!\n");
         refresh(); // Refresh the screen
 
@@ -248,12 +271,22 @@ void play_game() {
         // op = getch(); // Get a character from user
         // refresh(); // Refresh the screen
 
-        printw("X: ");
-        scanw("%d", &row);
-        printw("Y: ");
-        scanw("%d", &column);
-        printw("A: ");
-        scanw("%c", &op);
+        // mvprintw(16,0,"X: ");
+        // scanw("%d", &row);
+        // mvprintw(17,0,"Y: ");
+        // scanw("%d", &column);
+        // mvprintw(18,0,"A: ");
+        // scanw("%c", &op);
+        int trow = 17;
+        int trol = 0;
+        mvprintw(trow,trol,"X: ");
+       
+        mvprintw(trow+1,trol,"Y: ");
+        
+        mvprintw(trow+2,trol,"A: ");
+        mvscanw(trow,trol+3,"%d", &row);
+        mvscanw(trow+1,trol+3,"%d", &column);
+        mvscanw(trow+2,trol+3,"%c", &op);
 
         row++;
         column++;
