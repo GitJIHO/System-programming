@@ -1,396 +1,255 @@
-#include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
-#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <time.h>
-#include <ctype.h>
+#include <curses.h>
+#include <signal.h>
 
-//magic numbers
-#define X_SIZE 10
-#define Y_SIZE 10
-#define NUM_MINES 15
-#define empty 0
-#define mine 1
-#define noView 0
-#define view 1
-#define noFlag 0
-#define flag 1
+#define NUM_mines 3 //지뢰의 수
+#define HEIGHT 10 //높이
+#define WIDTH 10 //너비
 
-//point
-typedef struct {
-    int x;
-    int y;
-} point;
+bool lose = false;
+bool win = false;
+int mines = NUM_mines;
+int Flag = NUM_mines;
+time_t starttime;
+int cursor_x, cursor_y;
+int height = HEIGHT;
+int width = WIDTH;
 
-//forward declarations
-point* getRandomPoint();
-void populateFields();
-void debugPrint();
-void reDrawPlayerView();
-int getMineNum(int x, int y);
-int isMine(int x, int y);
-int dig(int x, int y);
-void revealFrom(int x, int y);
-int isWin();
-int getPlayerInput();
-int setFlag(int x, int y);
-int checkMine(int x, int y);
-int landingMenu();
+typedef struct Cell { //셀 구조체
+    int number_of_mines;
+    char ch;
+    bool uncovered;
+    bool bomb;
+} Cell;
 
-//this is the main array used for game logic
-int minefield[X_SIZE][Y_SIZE];
-//array that keeps track of what the player can see
-int visibleField[X_SIZE][Y_SIZE];
-//array that keeps track of the player's flags
-int flagField[X_SIZE][Y_SIZE];
-//set to true if the player loses
-int lose = 0;
+Cell cells[HEIGHT+1][WIDTH+1]; //셀 구조체 2차원 배열 생성
 
-int main (int argc, char ** argv)
-{
-    if (!landingMenu())
-        return 1;
+void sigint_handler(int);
+void make_board();          
+void print_board();        
+void bombplacing_randomly(int);    
+void numof_adjacent_mines();        
+void uncover(int, int);    
+void reveal_automatically(int, int);  
+void check_for_win(int);   
+void play_game();              
 
-    srand(time(NULL)); //seed the random number generator
-    populateFields(); //set up the game world
-    reDrawPlayerView(); //draw the game world
+int main() {
+    starttime = time(NULL);
+    signal(SIGQUIT, sigint_handler); //시그널 조절
 
-    while (!isWin())
-    {
-        if (!getPlayerInput())
-            system("sleep 1");
-        if (lose)
-        {
-            printf("\x1B[32m" "" "\x1B[0m"); //reset the printf color, idk if I actually need to do this, but I will just in case
-            return 1;
-        }
+    initscr();
+    start_color(); //글자 색 변경 세팅용
+    init_pair(1, COLOR_GREEN, COLOR_BLACK); //글자 색 변경 세팅용
 
-        reDrawPlayerView();
-    }
+    play_game();
 
-    printf("YOU WIN!\n");
-
-    printf("\x1B[32m" "" "\x1B[0m"); //reset the printf color, idk if I actually need to do this, but I will just in case
-    return 1;
+    return 0;
 }
 
-int landingMenu()
-{
-    char in;
-    system("clear");
-
-    while (1)
-    {
-        printf("Welcome to minesweeper!\n1- Play\n2- Quit\n");
-
-        //fseek(stdin,0,SEEK_END); //uncomment for solaris system
-        scanf("%1s", &in);
-        if (in == '1')
-        {
-            return 1;
-        } else if (in == '2')
-        {
-            return 0;
-        } else {
-            printf("Invalid input!\n");
-            system("sleep 1");
-            system("clear");
-        }
-    }
+void sigint_handler(int signum) { //signal 조절을 위한 함수
+    getyx(stdscr, cursor_y, cursor_x); //경과시간 표시 전 입력 위치 기억
+    time_t currenttime = time(NULL);
+    time_t elapsed = currenttime - starttime;
+    mvprintw(0,0,"Elapsed time: %ld", (long int)elapsed);
+    move(cursor_y, cursor_x); //경과 시간 표시 전 입력 위치로 이동
+    refresh();
 }
 
-//returns a pointer to a random point
-point* getRandomPoint()
-{
-    point * p = (point*)(malloc(sizeof(point))); //allocate memory for the point
-
-    p->x = (rand() % X_SIZE);
-    p->y = (rand() % Y_SIZE);
-
-    return p;
-}
-
-//sets up the game
-void populateFields()
-{
-    int c = 0;
+void make_board() { //게임 보드를 만드는 메소드
     int i, j;
-    point *p;
-
-    //initialize the minefield
-    for (i = 0; i < Y_SIZE; i++)
-        for (j = 0; j < X_SIZE; j++)
-            minefield[j][i] = empty;
-
-    //initialize the playerfield
-    for (i = 0; i < Y_SIZE; i++)
-        for (j = 0; j < X_SIZE; j++)
-            visibleField[j][i] = noView;
-
-    //initialize the flagfield
-    for (i = 0; i < Y_SIZE; i++)
-        for (j = 0; j < X_SIZE; j++)
-            flagField[j][i] = noFlag;
-
-    while (1)
-    {
-        p = getRandomPoint();
-
-        if (minefield[p->x][p->y] != mine)
-        {
-            minefield[p->x][p->y] = mine;
-            c++;
-        }
-        free(p); //free the memory allocated in getRandomPoint
-
-        if (c >= NUM_MINES)
-            break;
-    }
-}
-
-//prints a view of the minefield for debugging
-void debugPrint()
-{
-    int i, j;
-    printf("\x1B[32m" "-------------------------------------------\n");
-
-    for (i = 0; i < Y_SIZE; i++)
-    {
-        printf("\x1B[32m" "| ");
-        for (j = 0; j < X_SIZE; j++)
-        {
-            if (minefield[j][i] == mine)
-                printf("\x1B[31m" "X | ");
-            else
-            {
-                printf("\x1B[36m" "%d | ", getMineNum(j, i));
+    for (i = 0; i <= height + 1; ++i) {
+        for (j = 0; j <= width + 1; ++j) {
+            if (i == 0 || i == height + 1 || j == 0 || j == width + 1) {
+                cells[i][j].bomb = false;
+                cells[i][j].uncovered = true;
+            }
+            else {
+                cells[i][j].ch = ' ';
+                cells[i][j].number_of_mines = 0;
+                cells[i][j].bomb = false;
+                cells[i][j].uncovered = false;
             }
         }
-        printf("\x1B[32m" "\n");
-        printf("\x1B[32m" "-------------------------------------------\n");
     }
+    return;
 }
 
-//draws or redraws the player's view
-void reDrawPlayerView()
-{
+void print_board() { //변경된 게임판 값들을 출력하는 메소드
+    clear();
+    mvprintw(5, 0, "FLAGS: %d\n", Flag);
+    attron(COLOR_PAIR(1));
+    printw("+ ");
     int i, j;
-
-    system("clear");
-
-    printf("\x1B[32m" "----1---2---3---4---5---6---7---8---9---10-\n");
-
-    for (i = 0; i < Y_SIZE; i++)
-    {
-        if (i+1 < 10)
-            printf("\x1B[32m" "%d | ", i+1);
-        else
-            printf("\x1B[32m" "%d| ", i+1);
-        for (j = 0; j < X_SIZE; j++)
-        {
-            if (flagField[j][i] == flag)
-            {
-                printf("\x1B[31m"  "F | ");
+    for (i = 0; i <= width-1; ++i)
+        printw("%d ", i);
+    printw("\n");
+    for (i = 0; i <= height-1; ++i) {
+        for (j = 0; j <= width; ++j) {
+            if (j == 0){
+                printw("%d ", i);
+            } 
+            else{
+                attroff(COLOR_PAIR(1));
+                if(cells[i+1][j].ch == '0'){
+                    printw("X ");
+                } else{
+                    printw("%c ", cells[i+1][j].ch);
+                }
             }
-            else if (visibleField[j][i] == noView)
-                printf("\x1B[32m"  "# | ");
-            else
-            {
-                printf("\x1B[36m" "%d | ", getMineNum(j, i));
+            attron(COLOR_PAIR(1));
+        }
+        printw("\n");
+    }
+    attron(COLOR_PAIR(1));
+    mvprintw(17,0,"+ - - - - - - - - - - +");
+    mvprintw(6,22,"+");
+    for(int i=7; i<17; i++){
+        mvprintw(i,22,"|");
+    }
+    attroff(COLOR_PAIR(1));   
+    refresh();
+    return;
+}
+
+void bombplacing_randomly(int mines) { //폭탄을 랜덤 배치하기 위한 메소드
+    int random_row, random_col, num_of_mine = 0;
+    while (num_of_mine < mines) {
+        random_row = rand() % height; 
+        random_col = rand() % width;  
+
+        if (cells[random_row][random_col].bomb == false && (random_row != 0 && random_col != 0))
+        {
+            cells[random_row][random_col].bomb = true;
+            num_of_mine++;
+        }
+    }
+    return;
+}
+
+void numof_adjacent_mines() { //셀 근처의 폭탄 개수를 파악하기 위한 메소드
+    int i, j, m, n;
+    for (i = 1; i <= height; ++i) {
+        for (j = 1; j <= width; ++j) {
+            if (cells[i][j].bomb == false) {
+                for (m = i - 1; m <= i + 1; ++m)
+                    for (n = j - 1; n <= j + 1; ++n)
+                        if (cells[m][n].bomb == true)
+                            cells[i][j].number_of_mines++;
             }
         }
-        printf("\x1B[32m" "\n");
-        printf("\x1B[32m" "-------------------------------------------\n");
     }
+    return;
 }
 
-//'digs' at the current point
-int dig(int x, int y)
-{
-    if (visibleField[x][y] == view)
-    {
-        printf("Already dug here.\n");
-        system("sleep 1");
-        return 1;
-    }
-    if (flagField[x][y] == flag)
-    {
-        printf("Remove flag before digging!\n");
-        system("sleep 1");
-        return 1;
-    }
-    if (minefield[x][y] == mine)
-    {
-        debugPrint();
-        printf("YOU LOSE!\n");
-        lose = 1;
-        return 1;
-    }
-
-    revealFrom(x, y);
-
-    return 1;
-}
-
-void revealFrom(int x, int y)
-{
-    if (x >= X_SIZE || x < 0 || y >= Y_SIZE || y < 0)
-    {
+void uncover(int a, int b) { //셀을 클릭했을 때를 처리하는 메소드
+    if (cells[a][b].bomb == true) { //폭탄을 클릭했을 때 lose
+        lose = true;
+        clear();
+        mvprintw(5,17,"YOU LOSE!");
+        for(int i=9; i>0; i--){
+            mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", i);
+            refresh();
+            sleep(1);
+        }
+        mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", 0);
+        refresh();
+        clear();
         return;
     }
-    else if (visibleField[x][y] == view)
-    {
-        return;
-    }
-    else if (minefield[x][y] == mine)
-    {
-        return;
-    }
-    else if (getMineNum(x, y) > 0)
-    {
-        visibleField[x][y] = view;
-        return;
-    } else {
-        visibleField[x][y] = view;
-        revealFrom(x, y+1);
-        revealFrom(x, y-1);
-        revealFrom(x+1, y+1);
-        revealFrom(x+1, y-1);
-        revealFrom(x+1, y);
-        revealFrom(x-1, y+1);
-        revealFrom(x-1, y-1);
-        revealFrom(x-1, y);
-    }
-}
 
-//returns the number of mines around a square
-int getMineNum(int x, int y)
-{
-    int ret = 0;
-
-    ret += checkMine(x+0,y+1);
-    ret += checkMine(x+0,y-1);
-    ret += checkMine(x+1,y+1);
-    ret += checkMine(x+1,y-1);
-    ret += checkMine(x+1,y+0);
-    ret += checkMine(x-1,y+1);
-    ret += checkMine(x-1,y-1);
-    ret += checkMine(x-1,y+0);
-
-    return ret;
-}
-
-//does boundry checking for the minefield
-int checkMine(int x, int y)
-{
-    if (x >= X_SIZE || x < 0 || y >= Y_SIZE || y < 0)
-        return empty;
+    cells[a][b].ch = cells[a][b].number_of_mines + '0';
+    if (cells[a][b].number_of_mines == 0) //지뢰가 없는 경우
+        reveal_automatically(a, b); //주변 다시 탐색
     else
-        return minefield[x][y];
+        cells[a][b].uncovered = true;
+
+    return;
 }
 
-//checks if there is a mine in the location
-//also does bounds checking
-int isMine(int x, int y)
-{
-    if (x >= X_SIZE || x < 0 || y >= Y_SIZE || y < 0)
-        return empty;
-    else
-    {
-        return minefield[x][y];
-    }
-}
-
-//checks if the player won
-int isWin()
-{
+void reveal_automatically(int a, int b) { //지뢰가 없는 경우 주변을 다시 탐색하는 메소드
     int i, j;
-
-    //every point that isn't a mine must be visible
-    for (i = 0; i < Y_SIZE; i++)
-    {
-        for (j = 0; j < X_SIZE; j++)
-        {
-            if (minefield[j][i] != mine && visibleField[j][i] != view)
-                return 0; //there is a point that is not visible and isn't a mine
-        }
+    if (cells[a][b].uncovered == false) {
+        cells[a][b].uncovered = true;
+        for (i = a - 1; i <= a + 1; ++i)
+            for (j = b - 1; j <= b + 1; ++j)
+                if (cells[i][j].uncovered == false)
+                    uncover(i, j);
     }
-
-    //every point with a mine must have a flag
-    for (i = 0; i < Y_SIZE; i++)
-    {
-        for (j = 0; j < X_SIZE; j++)
-        {
-            if (minefield[j][i] == mine && flagField[j][i] != flag)
-                return 0; //there is a point that has a mine, but no flag
-        }
-    }
-
-    return 1; //all points check out, the player wins
+    return;
 }
 
-int getPlayerInput()
-{
-    int x = -1;
-    int y = -1;
-    char df[1], inx[2], iny[2];
+void check_for_win(int mines) { //게임 승리 여부를 판단하는 메소드
+    int i, j, counter = 0;
 
+    for (i = 1; i <= height; ++i)
+        for (j = 1; j <= width; ++j){
+            if (cells[i][j].bomb == false && cells[i][j].ch != ' ' && cells[i][j].ch != 'F')
+                counter++;
+        }
 
-    printf("d to dig f to flag\nex- \"d 4 5\" digs at x=4, y=5\n");
-    //fseek(stdin,0,SEEK_END); //uncomment for solaris system
-    scanf("%1s %2s %2s", df, inx, iny);
-
-    if (df[0] != 'd' && df[0] != 'f')
-    {
-        printf("Invalid input!\n");
-        return 0;
+    if (counter == (height * width) - mines) { //승리시
+        win = true;
+        clear();
+        mvprintw(5,17,"YOU WIN!");
+        for(int i=9; i>0; i--){
+            mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", i);
+            refresh();
+            sleep(1);
+        }
+        mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", 0);
+        refresh();
+        clear();
+        return;
     }
-
-    x = atoi(inx) - 1;
-    y = atoi(iny) - 1;
-
-    if (x >= X_SIZE && x < 0)
-    {
-        printf("Invalid input!\n");
-        return 0;
-    }
-
-    if (y >= Y_SIZE && y < 0)
-    {
-        printf("Invalid input!\n");
-        return 0;
-    }
-
-
-    if (df[0] == 'd') {
-        dig(x, y);
-    } else if (df[0] == 'f'){
-        return setFlag(x, y);
-    } else {
-        printf("Invalid input!\n");
-        return 0;
-    }
-    return 1;
 }
 
-int setFlag(int x, int y)
-{
-    if (visibleField[x][y] == noView)
-    {
-        if (flagField[x][y] != flag)
-        {
-            flagField[x][y] = flag;
-        }
-        else
-        {
-            flagField[x][y] = noFlag;
-        }
+void play_game() { //게임 전체 진행을 위한 메소드
 
-        return 1;
-    }
-    else
-    {
-        printf("Can't set a flag on a visible tile!\n");
-        system("sleep 1");
-        return 0;
-    }
+    srand(time(NULL)); //폭탄 위치 랜덤값 설정을 위한 세팅
+
+    int x, y, row, column;
+    char op;
+
+    make_board();
+    bombplacing_randomly(mines);
+    numof_adjacent_mines();
+
+    do {
+        print_board();
+
+        int trow = 18;
+        int trol = 0;
+        mvprintw(trow,trol,"X: ");
+        mvprintw(trow+1,trol,"Y: ");
+        mvprintw(trow+2,trol,"A: ");
+        mvscanw(trow,trol+3,"%d", &row);
+        mvscanw(trow+1,trol+3,"%d", &column);
+        mvscanw(trow+2,trol+3,"%c", &op);
+        if(row<0 || column<0){
+            continue;
+        }
+        row++;
+        column++;
+        if (op == 'c')
+            uncover(row, column);
+        if (op == 'f'){ 
+            if(cells[row][column].ch != 'F'){
+                cells[row][column].ch = 'F';
+                Flag--;
+            }
+        }
+        if (op == 'x'){
+            cells[row][column].ch = ' ';
+            Flag++;
+        }
+        if (!lose)
+            check_for_win(mines);
+    } while (!lose && !win);
+    
+    return;
 }
