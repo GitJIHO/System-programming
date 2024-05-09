@@ -6,15 +6,15 @@
 #include <curses.h>
 #include <signal.h>
 
-#define NUM_mines 3 //지뢰의 수
+#define NUM_mines 5 //지뢰의 수
 #define HEIGHT 10 //높이
 #define WIDTH 10 //너비
 
+volatile sig_atomic_t stime;
 bool lose = false;
 bool win = false;
 int mines = NUM_mines;
 int Flag = NUM_mines;
-time_t starttime;
 int cursor_x, cursor_y;
 int height = HEIGHT;
 int width = WIDTH;
@@ -39,7 +39,7 @@ void check_for_win(int);
 void play_game();              
 
 int main() {
-    starttime = time(NULL);
+    stime = time(NULL);
     signal(SIGQUIT, sigint_handler); //시그널 조절
 
     initscr();
@@ -53,9 +53,8 @@ int main() {
 
 void sigint_handler(int signum) { //signal 조절을 위한 함수
     getyx(stdscr, cursor_y, cursor_x); //경과시간 표시 전 입력 위치 기억
-    time_t currenttime = time(NULL);
-    time_t elapsed = currenttime - starttime;
-    mvprintw(0,0,"Elapsed time: %ld", (long int)elapsed);
+    time_t elapsed = time(NULL) - stime;
+    mvprintw(0,0,"Elapsed time: %ld", elapsed);
     move(cursor_y, cursor_x); //경과 시간 표시 전 입력 위치로 이동
     refresh();
 }
@@ -161,11 +160,13 @@ void uncover(int a, int b) { //셀을 클릭했을 때를 처리하는 메소드
         clear();
         return;
     }
-
+    if(cells[a][b].ch == 'F' && cells[a][b].bomb == false){ //미리 Flag한것이 uncover되는 경우
+        Flag++;
+    }
     cells[a][b].ch = cells[a][b].number_of_mines + '0';
-    if (cells[a][b].number_of_mines == 0) //지뢰가 없는 경우
+    if (cells[a][b].number_of_mines == 0){ //지뢰가 없는 경우
         reveal_automatically(a, b); //주변 다시 탐색
-    else
+    } else
         cells[a][b].uncovered = true;
 
     return;
@@ -188,11 +189,11 @@ void check_for_win(int mines) { //게임 승리 여부를 판단하는 메소드
 
     for (i = 1; i <= height; ++i)
         for (j = 1; j <= width; ++j){
-            if (cells[i][j].bomb == false && cells[i][j].ch != ' ' && cells[i][j].ch != 'F')
+            if (cells[i][j].bomb == true && cells[i][j].ch == 'F')
                 counter++;
         }
 
-    if (counter == (height * width) - mines) { //승리시
+    if (counter == mines) { //승리시
         win = true;
         clear();
         mvprintw(5,17,"YOU WIN!");
@@ -227,25 +228,30 @@ void play_game() { //게임 전체 진행을 위한 메소드
         mvprintw(trow,trol,"X: ");
         mvprintw(trow+1,trol,"Y: ");
         mvprintw(trow+2,trol,"A: ");
-        mvscanw(trow,trol+3,"%d", &row);
-        mvscanw(trow+1,trol+3,"%d", &column);
+        mvscanw(trow,trol+3,"%d", &column);
+        mvscanw(trow+1,trol+3,"%d", &row);
         mvscanw(trow+2,trol+3,"%c", &op);
         if(row<0 || column<0){
             continue;
         }
         row++;
         column++;
-        if (op == 'c')
-            uncover(row, column);
-        if (op == 'f'){ 
+        if (op == 'c' || op == 'C'){
             if(cells[row][column].ch != 'F'){
+                uncover(row, column);
+            }
+        }
+        if (op == 'f' || op == 'F'){
+            if(cells[row][column].ch != 'F' && cells[row][column].ch == ' ' && Flag>0){
                 cells[row][column].ch = 'F';
                 Flag--;
             }
         }
-        if (op == 'x'){
-            cells[row][column].ch = ' ';
-            Flag++;
+        if (op == 'x' || op == 'X'){
+            if(cells[row][column].ch == 'F'){
+                cells[row][column].ch = ' ';
+                Flag++;
+            }
         }
         if (!lose)
             check_for_win(mines);
