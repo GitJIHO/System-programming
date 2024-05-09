@@ -158,6 +158,7 @@ void uncover(int a, int b) { //셀을 클릭했을 때를 처리하는 메소드
         mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", 0);
         refresh();
         clear();
+        endwin();
         return;
     }
     if(cells[a][b].ch == 'F' && cells[a][b].bomb == false){ //미리 Flag한것이 uncover되는 경우
@@ -205,6 +206,7 @@ void check_for_win(int mines) { //게임 승리 여부를 판단하는 메소드
         mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", 0);
         refresh();
         clear();
+        endwin();
         return;
     }
 }
