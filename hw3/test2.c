@@ -1,13 +1,14 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <time.h>
 #include <curses.h>
 #include <signal.h>
 
-#define NUM_mines 3
-#define HEIGHT 10
-#define WIDTH 10
+#define NUM_mines 3 //지뢰의 수
+#define HEIGHT 10 //높이
+#define WIDTH 10 //너비
 
 bool lose = false;
 bool win = false;
@@ -15,47 +16,42 @@ int mines = NUM_mines;
 int Flag = NUM_mines;
 time_t starttime;
 int cursor_x, cursor_y;
+int height = HEIGHT;
+int width = WIDTH;
 
-
-
-typedef struct Cell {
+typedef struct Cell { //셀 구조체
     int number_of_mines;
     char ch;
     bool uncovered;
     bool bomb;
 } Cell;
 
-/* struct members for height and width of board and 2 dimensional array of cells */
-typedef struct Board {
-    int height, width;
-    Cell **cells; /* pointer to the pointer */
-} Board;
+Cell cells[HEIGHT+1][WIDTH+1]; //셀 구조체 2차원 배열 생성
 
-void sigint_handler(int signum);
-void make_board(Board *);          /* pointer to the board in order to create board */
-void print_board(Board *);         /* pointer to the board and printing board */
-void bombplacing_randomly(Board *, int);    /* pointer to the board and number of bombs  */
-void numof_adjacent_mines(Board *);        /* pointer to the board and determining number of bombs in adjacency cells */
-void uncover(Board *, int, int);    /* pointer to the board and selected coordinates by the user for uncovering cells */
-void reveal_automatically(Board *, int, int);   /* pointer to the board and cell's coordinates for automatic reveal of cells */
-void check_for_win(Board *, int);   /* pointer to the board and number of mines  */
-void play_game();                   /* function to play the game */
+void sigint_handler(int);
+void make_board();          
+void print_board();        
+void bombplacing_randomly(int);    
+void numof_adjacent_mines();        
+void uncover(int, int);    
+void reveal_automatically(int, int);  
+void check_for_win(int);   
+void play_game();              
 
 int main() {
     starttime = time(NULL);
-    signal(SIGQUIT, sigint_handler);
+    signal(SIGQUIT, sigint_handler); //시그널 조절
 
-    initscr();  // Initialize the screen
-    start_color();
-    init_pair(1, COLOR_GREEN, COLOR_BLACK);
-    cbreak();   // Disable line buffering
+    initscr();
+    start_color(); //글자 색 변경 세팅용
+    init_pair(1, COLOR_GREEN, COLOR_BLACK); //글자 색 변경 세팅용
 
     play_game();
 
     return 0;
 }
 
-void sigint_handler(int signum) {
+void sigint_handler(int signum) { //signal 조절을 위한 함수
     getyx(stdscr, cursor_y, cursor_x);
     time_t elapsed = time(NULL) - starttime;
     mvprintw(0,0,"Elapsed time: %ld", elapsed);
@@ -63,53 +59,45 @@ void sigint_handler(int signum) {
     refresh();
 }
 
-void make_board(Board *ptr) {
+void make_board() { //게임 보드를 만드는 메소드
     int i, j;
-    ptr->cells = (Cell **)malloc((ptr->height + 2) * sizeof(Cell *)); /* array of pointers*/
-
-    for (i = 0; i <= ptr->height + 1; ++i)
-        ptr->cells[i] = (Cell *)malloc((ptr->width + 2) * sizeof(Cell)); /* dynamic 2 dimensional array of cells and creating cells in board */
-    for (i = 0; i <= ptr->height + 1; ++i) {
-        for (j = 0; j <= ptr->width + 1; ++j) {
-            if (i == 0 || i == ptr->height + 1 || j == 0 || j == ptr->width + 1) {
-                ptr->cells[i][j].bomb = false;
-                ptr->cells[i][j].uncovered = true;
+    for (i = 0; i <= height + 1; ++i) {
+        for (j = 0; j <= width + 1; ++j) {
+            if (i == 0 || i == height + 1 || j == 0 || j == width + 1) {
+                cells[i][j].bomb = false;
+                cells[i][j].uncovered = true;
             }
-
             else {
-                ptr->cells[i][j].ch = ' ';  // making cells with character ' '
-                ptr->cells[i][j].number_of_mines = 0; // before the game it is zero
-                ptr->cells[i][j].bomb = false; // there is no bomb before the game
-                ptr->cells[i][j].uncovered = false;
+                cells[i][j].ch = ' ';
+                cells[i][j].number_of_mines = 0;
+                cells[i][j].bomb = false;
+                cells[i][j].uncovered = false;
             }
         }
     }
     return;
 }
 
-void print_board(Board *ptr) {
-    clear(); // Clear the screen
-
-
+void print_board() { //변경된 게임판 값들을 출력하는 메소드
+    clear();
     mvprintw(5, 0, "FLAGS: %d\n", Flag);
     attron(COLOR_PAIR(1));
     printw("+ ");
     int i, j;
-    for (i = 0; i <= ptr->width-1; ++i) /* loop in order print each row */
-        printw("%d ", i); // numbers which shows rows
+    for (i = 0; i <= width-1; ++i)
+        printw("%d ", i);
     printw("\n");
-    /* nested loop in order to print numbers for columns and characters for cells */
-    for (i = 0; i <= ptr->height-1; ++i) {
-        for (j = 0; j <= ptr->width; ++j) {
+    for (i = 0; i <= height-1; ++i) {
+        for (j = 0; j <= width; ++j) {
             if (j == 0){
                 printw("%d ", i);
             } 
             else{
                 attroff(COLOR_PAIR(1));
-                if(ptr->cells[i+1][j].ch == '0'){
+                if(cells[i+1][j].ch == '0'){
                     printw("X ");
                 } else{
-                    printw("%c ", ptr->cells[i+1][j].ch);
+                    printw("%c ", cells[i+1][j].ch);
                 }
             }
             attron(COLOR_PAIR(1));
@@ -117,196 +105,150 @@ void print_board(Board *ptr) {
         printw("\n");
     }
     attron(COLOR_PAIR(1));
-    mvprintw(16,0,"+ - - - - - - - - - - +");
+    mvprintw(17,0,"+ - - - - - - - - - - +");
     mvprintw(6,22,"+");
-    for(int i=7; i<16; i++){
+    for(int i=7; i<17; i++){
         mvprintw(i,22,"|");
     }
     attroff(COLOR_PAIR(1));   
-    refresh(); // Refresh the screen
+    refresh();
     return;
 }
 
-void bombplacing_randomly(Board *ptr, int mines) {
+void bombplacing_randomly(int mines) { //폭탄을 랜덤 배치하기 위한 메소드
     int random_row, random_col, num_of_mine = 0;
     while (num_of_mine < mines) {
-        random_row = rand() % ptr->height; // generating random number
-        random_col = rand() % ptr->width;  // generating random number
+        random_row = rand() % height; 
+        random_col = rand() % width;  
 
-        if (ptr->cells[random_row][random_col].bomb == false && (random_row != 0 && random_col != 0))
+        if (cells[random_row][random_col].bomb == false && (random_row != 0 && random_col != 0))
         {
-            ptr->cells[random_row][random_col].bomb = true; // if not, make a new bomb
+            cells[random_row][random_col].bomb = true;
             num_of_mine++;
         }
     }
     return;
 }
 
-void numof_adjacent_mines(Board *ptr) {
-    /*
-	Count all the mines in the 8 adjacent
-        cells
-
-      (i-1,j-1)  (i-1,j) (i-1,j+1)
-              \    |    /
-               \   |   /
-        (i,j-1)---CELL---(i,j+1)
-                 / |  \
-               /   |    \
-       (i+1,j-1) (i+1,j) (i+1,j+1)
-    */
-
+void numof_adjacent_mines() { //셀 근처의 폭탄 개수를 파악하기 위한 메소드
     int i, j, m, n;
-    for (i = 1; i <= ptr->height; ++i) {
-        for (j = 1; j <= ptr->width; ++j) {
-            if (ptr->cells[i][j].bomb == false) {
+    for (i = 1; i <= height; ++i) {
+        for (j = 1; j <= width; ++j) {
+            if (cells[i][j].bomb == false) {
                 for (m = i - 1; m <= i + 1; ++m)
                     for (n = j - 1; n <= j + 1; ++n)
-                        if (ptr->cells[m][n].bomb == true) // checking number of bombs in adjacent cell
-                            ptr->cells[i][j].number_of_mines++;
+                        if (cells[m][n].bomb == true)
+                            cells[i][j].number_of_mines++;
             }
         }
     }
     return;
 }
 
-void uncover(Board *ptr, int a, int b) {
-    if (ptr->cells[a][b].bomb == true) {
-        lose = true; // terminate the game "in the play game function (while loop)"
-        int i, j;
-        /* nested loop to uncover cells */
-        for (i = 1; i <= ptr->height; ++i)
-            for (j = 1; j <= ptr->width; ++j)
-                if (ptr->cells[i][j].bomb == true) /* if there is a bomb */
-                    ptr->cells[i][j].ch = '*'; // showing all bombs
-                else
-                    ptr->cells[i][j].ch = ptr->cells[i][j].number_of_mines + '0'; // putting number of mines in surrounding cells
-        print_board(ptr);
-        printw("\nYou Lost\n");
-        printw("Game Over\n");
-        refresh(); // Refresh the screen
-
+void uncover(int a, int b) { //셀을 클릭했을 때를 처리하는 메소드
+    if (cells[a][b].bomb == true) { //폭탄을 클릭했을 때 lose
+        lose = true;
+        clear();
+        mvprintw(5,17,"YOU LOSE!");
+        for(int i=9; i>0; i--){
+            mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", i);
+            refresh();
+            sleep(1);
+        }
+        mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", 0);
+        refresh();
+        clear();
         return;
     }
 
-    ptr->cells[a][b].ch = ptr->cells[a][b].number_of_mines + '0'; //  showing number of bombs in the cell
-    if (ptr->cells[a][b].number_of_mines == 0)
-        reveal_automatically(ptr, a, b); // if number of bomb is 0 in cell then reveal automatically
+    cells[a][b].ch = cells[a][b].number_of_mines + '0';
+    if (cells[a][b].number_of_mines == 0) //지뢰가 없는 경우
+        reveal_automatically(a, b); //주변 다시 탐색
     else
-        ptr->cells[a][b].uncovered = true;
+        cells[a][b].uncovered = true;
 
     return;
 }
 
-void reveal_automatically(Board *ptr, int a, int b) {
+void reveal_automatically(int a, int b) { //지뢰가 없는 경우 주변을 다시 탐색하는 메소드
     int i, j;
-    if (ptr->cells[a][b].uncovered == false) {
-        ptr->cells[a][b].uncovered = true;
-        /* nested loop to reveal automatically */
+    if (cells[a][b].uncovered == false) {
+        cells[a][b].uncovered = true;
         for (i = a - 1; i <= a + 1; ++i)
             for (j = b - 1; j <= b + 1; ++j)
-                if (ptr->cells[i][j].uncovered == false)
-                    uncover(ptr, i, j); //calling function in order to uncover cells
+                if (cells[i][j].uncovered == false)
+                    uncover(i, j);
     }
     return;
 }
 
-void check_for_win(Board *ptr, int mines) {
-    int i, j, counter = 0; /* number of cells without bombs. At first assigning to zero*/
+void check_for_win(int mines) { //게임 승리 여부를 판단하는 메소드
+    int i, j, counter = 0;
 
-    for (i = 1; i <= ptr->height; ++i)
-        for (j = 1; j <= ptr->width; ++j){
-            if (ptr->cells[i][j].bomb == false && ptr->cells[i][j].ch != ' ' && ptr->cells[i][j].ch != 'F') /*if no bomb. increment*/
-                counter++; /* incrementing cells */
-            if (ptr->cells[i][j].bomb == false && ptr->cells[i][j].ch == 'F'){
-                printw("you win");
-                refresh();
-            }
+    for (i = 1; i <= height; ++i)
+        for (j = 1; j <= width; ++j){
+            if (cells[i][j].bomb == false && cells[i][j].ch != ' ' && cells[i][j].ch != 'F')
+                counter++;
         }
 
-    /* if counter equal below equation, it means user found all the cells which does not contain mines*/
-    if (counter == (ptr->height * ptr->width) - mines) {
+    if (counter == (height * width) - mines) { //승리시
         win = true;
-        // for (i = 1; i <= ptr->height; ++i)
-        //     for (j = 1; j <= ptr->width; ++j)
-        //         if (ptr->cells[i][j].bomb == true) /* if there is a bomb */
-        //             ptr->cells[i][j].ch = '*'; // show all the bombs
-        //         else
-        //             ptr->cells[i][j].ch = ptr->cells[i][j].number_of_mines + '0'; // showing numbers in the cells
-
-        // print_board(ptr);
-        printw("\nYou Won, Congratulations!!!\n");
-        refresh(); // Refresh the screen
-
+        clear();
+        mvprintw(5,17,"YOU WIN!");
+        for(int i=9; i>0; i--){
+            mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", i);
+            refresh();
+            sleep(1);
+        }
+        mvprintw(8,5,"PROGRAM WILL BE TERMINATED IN ... %d", 0);
+        refresh();
+        clear();
         return;
     }
 }
 
-void play_game() {
+void play_game() { //게임 전체 진행을 위한 메소드
 
-    srand(time(NULL)); // set seed for rand() in the "bombplacing_randomly" function
+    srand(time(NULL)); //폭탄 위치 랜덤값 설정을 위한 세팅
 
-    // printw("\t\t\t\t ***WELCOME TO MINEWSWEEPER GAME*** \n");
     int x, y, row, column;
     char op;
 
-    // printw("Please enter the size of board:\n");
-    // scanw("%d%d", &x, &y);
-
-    // printw("Please enter the number of mines: ");
-    // scanw("%d", &mines);
-
-    Board *ptr = (Board *)malloc(sizeof(Board)); /* creating dynamic array */
-    ptr->height = HEIGHT;
-    ptr->width = WIDTH;
-  
-    make_board(ptr);
-    bombplacing_randomly(ptr, mines);
-    numof_adjacent_mines(ptr);
+    make_board();
+    bombplacing_randomly(mines);
+    numof_adjacent_mines();
 
     do {
-        print_board(ptr);
+        print_board();
 
-        // printw("Would you like to uncover or mark?  'u' or 'm' ");
-        // op = getch(); // Get a character from user
-        // refresh(); // Refresh the screen
-
-        // mvprintw(16,0,"X: ");
-        // scanw("%d", &row);
-        // mvprintw(17,0,"Y: ");
-        // scanw("%d", &column);
-        // mvprintw(18,0,"A: ");
-        // scanw("%c", &op);
-        int trow = 17;
+        int trow = 18;
         int trol = 0;
         mvprintw(trow,trol,"X: ");
-       
         mvprintw(trow+1,trol,"Y: ");
-        
         mvprintw(trow+2,trol,"A: ");
         mvscanw(trow,trol+3,"%d", &row);
         mvscanw(trow+1,trol+3,"%d", &column);
         mvscanw(trow+2,trol+3,"%c", &op);
-
+        if(row<0 || column<0){
+            continue;
+        }
         row++;
         column++;
-        if (op == 'c') /* u -> uncover */
-            uncover(ptr, row, column);
-        if (op == 'f'){ /* m -> mark*/
-            ptr->cells[row][column].ch = 'F';
-            Flag--;
+        if (op == 'c')
+            uncover(row, column);
+        if (op == 'f'){ 
+            if(cells[row][column].ch != 'F'){
+                cells[row][column].ch = 'F';
+                Flag--;
+            }
         }
         if (op == 'x'){
-            ptr->cells[row][column].ch = ' ';
+            cells[row][column].ch = ' ';
             Flag++;
         }
         if (!lose)
-            check_for_win(ptr, mines);
+            check_for_win(mines);
     } while (!lose && !win);
-
-    /* memory releasing */
-    for (int i = 0; i <= ptr->height + 1; ++i)
-        free(ptr->cells[i]); /* free each cell */
-    free(ptr->cells); /* free array of pointers */
+    
     return;
 }
