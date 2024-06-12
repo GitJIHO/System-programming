@@ -27,3 +27,4 @@ void f(int signum){
     long int curtime = time_t1-time_t2;
     printf("Currently elapsed time: %ld sec(s)", curtime);
 }
+
