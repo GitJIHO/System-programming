@@ -45,6 +45,8 @@ int main(int ac, char *av[]){
         pthread_cond_signal(&flag);
         reports_in++;
     }
+	
+    printf("%7d: total words\n", total_words);
     return 0;
 }
 
